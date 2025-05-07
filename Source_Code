@@ -1,0 +1,113 @@
+import os
+import subprocess
+import serial
+import time
+import pynmea2
+import mysql.connector
+import firebase_admin
+from firebase_admin import credentials, db,storage
+from datetime import datetime, timedelta
+import RPi.GPIO as GPIO
+from hx711 import HX711
+
+# Calibration parameters (replace with your actual calibration parameters)
+slope = -0.002107 # Calibration slope
+intercept = -12.99999 # Calibration intercept
+
+# Setup GPIO mode and create HX711 instance
+GPIO.setmode(GPIO.BCM)
+hx = HX711(dout_pin=6, pd_sck_pin=5)
+
+def parse_gps_data(data):
+ try:
+     msg = pynmea2.parse(data.strip())
+     if isinstance(msg, pynmea2.RMC):
+         lat = msg.latitude
+         lng = msg.longitude
+         return {"latitude": lat, "longitude":lng}
+ except pynmea2.ParseError as e:
+     print("Parse error:", e)
+ except Exception as e:
+     print("Error:", e)
+ return None
+
+def capture_and_upload_image():
+ image_directory = "/home/pi/images/"
+ if not os.path.exists(image_directory):
+     os.makedirs(image_directory)
+ now = datetime.now()
+ dt = now.strftime("%Y%m%d%H%M%S")
+ image_path = os.path.join(image_directory,f"{dt}.jpg")
+ subprocess.run(["libcamera-still", "-o",image_path])
+ if os.path.exists(image_path):
+     print("Image captured successfully")
+     bucket = storage.bucket(name="rpi-image-b680a.appspot.com")
+     blob = bucket.blob(f"images/{dt}.jpg")
+     with open(image_path, "rb") as file:
+         blob.upload_from_file(file)
+     current_time = datetime.utcnow()
+     expiration_time = current_time + timedelta(hours=1)
+     download_url = blob.generate_signed_url(expiration=expiration_time, version="v4")
+     print("Download URL:", download_url)
+     return download_url
+ else:
+     print("Error: Failed to capture image")
+     return None
+    
+
+    
+def read_gps():
+ port = "/dev/serial0"
+ ser = serial.Serial(port, baudrate=9600,timeout=0.5)
+ while True:
+     try:
+         data = ser.readline()
+         try:
+             data_str = data.decode('utf-8',errors='ignore')
+         except UnicodeDecodeError as e:
+             print("Error decoding GPS data:",e)
+             continue
+         if data_str.startswith("$GPRMC"):
+             gps_info = parse_gps_data(data_str)
+             if gps_info:
+                 return gps_info
+     except KeyboardInterrupt:
+         print("Exiting...")
+         break
+     except Exception as e:
+         print("Error reading GPS data:", e)
+ ser.close()
+ 
+ 
+ 
+def insert_to_mysql(download_url, latitude,longitude, calibrated_weight):
+ now = datetime.now()
+ date = now.strftime("%Y-%m-%d")
+ time = now.strftime("%H:%M:%S")
+ query = "INSERT INTO DATA (Image_download_url,Latitude, Longitude, Weight, Date, Time) VALUES(%s, %s, %s, %s, %s, %s)"
+ values = (download_url, latitude, longitude,calibrated_weight, date, time)
+ db_cursor.execute(query, values)
+ db_connection.commit()
+ 
+ 
+ 
+if _name_ == "_main_":
+ try:
+     while True:
+         download_url =capture_and_upload_image()
+         gps_data = read_gps()
+         raw_data = hx.get_raw_data()
+         raw_data_value = raw_data[0] if isinstance(raw_data, (list, tuple)) else raw_data
+         calibrated_weight = slope *raw_data_value + intercept
+         if gps_data and download_url:
+             print("Parsed Latitude:",gps_data["latitude"])
+             print("Parsed Longitude:",gps_data["longitude"])
+             print("Calibrated Weight:",calibrated_weight, "grams")
+             insert_to_mysql(download_url,gps_data["latitude"], gps_data["longitude"],calibrated_weight)
+         time.sleep(10) # Adjust the delay time as needed
+ except Exception as e:
+     print("Error:", e)
+ finally:
+     GPIO.cleanup() # Clean up GPIO pins
+     db_cursor.close() # Close cursor
+     db_connection.close() # Close databaseconnection

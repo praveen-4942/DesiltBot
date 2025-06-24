@@ -55,6 +55,15 @@ DesiltBot is an autonomous silt detection and removal system built using Raspber
 
 ---
 
+<prev>
+<p align="center">
+  <img src="Entire setup.jpg" width="500" alt="Circuit Diagram"><br>
+  <b> Desilt Bot</b>
+</p>
+</prev>
+
+---
+
 ## 🗃️ Data Schema
 
 | Column             | Description                |

@@ -1,4 +1,3 @@
-The DesiltBot uses Raspberry Pi 4B, a Pi Camera, and a load cell to detect, weigh, and remove silt efficiently. It captures images, verifies material type, records GPS coordinates, and uploads data to Firebase and MySQL for real-time tracking. This system enhances waterway maintenance with automated silt detection, removal, and monitoring.
 
 # DesiltBot 🚜💧
 
